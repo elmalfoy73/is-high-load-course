@@ -14,8 +14,8 @@ This example uses Postgres as an implementation of the Event store. You can see 
 
 Thus, you have to run Postgres in order to test this example. We have `docker-compose` file in the root. Run following command to start the database:
 
-```
-docker-compose up
+```shell
+    docker-compose up -d
 ```
 
 ### Run the application
