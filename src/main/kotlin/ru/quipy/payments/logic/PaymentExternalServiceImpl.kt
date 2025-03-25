@@ -67,10 +67,14 @@ class PaymentExternalSystemAdapterImpl(
 
         var attempt = 0
         val maxRetries = 5
+        val maxSlowRetries = 2 // Дополнительные ретраи для долгих запросов
         var delay = 1000L
 
         while (attempt < maxRetries) {
             limiter.tickBlocking()
+
+            val startTime = now() // Засекаем время начала запроса
+
             val httpRequest = Request.Builder().run {
                 url("http://localhost:1234/external/process?serviceName=${serviceName}&accountName=${accountName}&transactionId=$transactionId&paymentId=${request.paymentId}&amount=${request.amount}")
                 post(emptyBody)
@@ -78,6 +82,9 @@ class PaymentExternalSystemAdapterImpl(
 
             try {
                 client.newCall(httpRequest).execute().use { response ->
+                    val endTime = now() // Засекаем время окончания запроса
+                    val duration = endTime - startTime
+
                     val body = try {
                         mapper.readValue(response.body?.string(), ExternalSysResponse::class.java)
                     } catch (e: Exception) {
@@ -85,7 +92,7 @@ class PaymentExternalSystemAdapterImpl(
                         ExternalSysResponse(transactionId.toString(), request.paymentId.toString(), false, e.message)
                     }
 
-                    logger.warn("[$accountName] Payment processed for txId: $transactionId, payment: ${request.paymentId}, succeeded: ${body.result}, message: ${body.message}")
+                    logger.warn("[$accountName] Payment processed for txId: $transactionId, payment: ${request.paymentId}, succeeded: ${body.result}, message: ${body.message}, duration: ${duration}ms")
 
                     if (body.result) {
                         paymentESService.update(request.paymentId) {
