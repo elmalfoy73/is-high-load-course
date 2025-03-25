@@ -86,24 +86,31 @@ class PaymentExternalSystemAdapterImpl(
                     }
 
                     logger.warn("[$accountName] Payment processed for txId: $transactionId, payment: ${request.paymentId}, succeeded: ${body.result}, message: ${body.message}")
+
                     if (body.result) {
-                    paymentESService.update(request.paymentId) {
-                        it.logProcessing(body.result, now(), transactionId, reason = body.message)
+                        paymentESService.update(request.paymentId) {
+                            it.logProcessing(body.result, now(), transactionId, reason = body.message)
+                        }
+                        return
                     }
-                    return
-                }
 
                     when (response.code) {
-                        500 -> delay = 0
                         400, 401, 403, 405 -> {
-                            logger.error("[$accountName] Payment failed for txId: $transactionId, code: \${response.code}")
+                            logger.error("[$accountName] Payment failed permanently for txId: $transactionId, code: ${response.code}")
                             return
                         }
-                        429, 503 -> {
+                        439 -> {
+                            delay *= 2
+                        }
+                        503, 500 -> {
+                            logger.error("[$accountName] Payment failed for txId: $transactionId, code: ${response.code}")
                             val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
                             if (retryAfter != null) {
                                 delay = retryAfter * 1000
                             }
+                        }
+                        else -> {
+                            logger.error("[$accountName] Payment failed for txId: $transactionId, code: ${response.code}")
                         }
                     }
                 }
@@ -115,9 +122,13 @@ class PaymentExternalSystemAdapterImpl(
 
             attempt++
             if (attempt < maxRetries) {
-                val finalDelay = min(delay, abs(request.deadline - now()))
-                logger.info("Retrying in ${finalDelay}ms (attempt ${attempt + 1})")
-                Thread.sleep(finalDelay)
+                val jitter = (delay * 0.3 * Math.random()).toLong()
+                val finalDelay = min(delay + jitter, abs(request.deadline - now()))
+
+                val adjustedDelay = finalDelay + jitter
+
+                logger.info("Retrying in ${adjustedDelay}ms (attempt ${attempt + 1})")
+                Thread.sleep(adjustedDelay)
             }
         }
 
